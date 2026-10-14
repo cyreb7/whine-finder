@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>Whine Finder</title>
+<meta name="description" content="Use your phone's microphone to track down a faint high-pitched electrical whine.">
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --line: #30363d; --text: #e6edf3; --dim: #8b949e;
+    --accent: #58a6ff; --hot: #ff5b4f; --warm: #f0a030; --cold: #3b82f6; --ok: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); max-width: 720px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 0 10px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); margin: 0 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  button, select, input { font: inherit; color: var(--text); background: #21262d; border: 1px solid var(--line);
+    border-radius: 10px; padding: 9px 12px; }
+  button { cursor: pointer; touch-action: manipulation; }
+  button.primary { background: var(--accent); color: #04121f; border-color: transparent; font-weight: 650; }
+  button:disabled { opacity: .5; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 0; }
+  .dim { color: var(--dim); }
+  .small { font-size: 13px; }
+  canvas { display: block; width: 100%; border-radius: 10px; background: #010409; touch-action: manipulation; }
+
+  #intro p { margin: 0 0 10px; }
+  #intro ol { margin: 0 0 12px; padding-left: 20px; }
+  #intro li { margin-bottom: 4px; }
+  #startBtn { width: 100%; padding: 14px; font-size: 17px; }
+  #err { color: var(--hot); margin-top: 10px; display: none; }
+
+  /* meter */
+  #meterCard { position: relative; overflow: hidden; transition: background-color .25s; }
+  #lockLine { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  #freq { font-size: 15px; font-weight: 600; }
+  #freq .tag { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 6px; margin-left: 6px; vertical-align: 2px; }
+  .tag.auto { background: #1f6feb33; color: var(--accent); }
+  .tag.locked { background: #3fb95033; color: var(--ok); }
+  #bigRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin: 6px 0 8px; }
+  #big { font-size: 64px; font-weight: 750; line-height: 1; font-variant-numeric: tabular-nums; }
+  #big small { font-size: 18px; font-weight: 600; color: var(--dim); margin-left: 4px; }
+  #trend { font-size: 18px; font-weight: 700; text-align: right; min-height: 26px; }
+  #bar { height: 18px; border-radius: 9px; background: #0b0f14; border: 1px solid var(--line); overflow: hidden; position: relative; }
+  #barFill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 9px;
+    background: linear-gradient(90deg, var(--cold), var(--warm) 60%, var(--hot)); transition: width .08s linear; }
+  #barMax { position: absolute; top: -2px; bottom: -2px; width: 3px; background: #fff; opacity: .85; left: 0; }
+  #stats { display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  #hist { height: 70px; margin-top: 10px; }
+
+  #cands { display: flex; gap: 6px; flex-wrap: wrap; min-height: 38px; }
+  .chip { padding: 6px 10px; border-radius: 999px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .chip.sel { background: var(--accent); color: #04121f; border-color: transparent; font-weight: 650; }
+  #spec { height: 150px; }
+  #fall { height: 120px; margin-top: 6px; }
+  .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+  #spots { list-style: none; margin: 10px 0 0; padding: 0; }
+  #spots li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+  #spots .sb { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: #0b0f14; overflow: hidden; }
+  #spots .sb i { display: block; height: 100%; background: linear-gradient(90deg, var(--cold), var(--hot)); }
+  #spots .del { padding: 2px 8px; font-size: 13px; }
+  #spots .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #spots .v { font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; color: var(--accent); }
+  details ul { padding-left: 20px; margin: 8px 0 0; }
+  details li { margin-bottom: 6px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔊 Whine Finder</h1>
+  <div class="row">
+    <button id="pauseBtn" class="hidden">Pause</button>
+  </div>
+</header>
+
+<section id="intro" class="card">
+  <p>Track down a faint, high-pitched electrical whine (coil whine, transformers, chargers, power bricks, monitors, LED drivers…) using your phone's microphone.</p>
+  <ol>
+    <li>Stand in a quiet spot and tap <b>Start</b>. Allow microphone access.</li>
+    <li>The app finds steady, narrow tones. If it picks the wrong one, tap the right frequency in the list or on the spectrum.</li>
+    <li>Walk slowly around the room with the phone's <b>bottom edge</b> (where the mic is) pointed at suspects. The number goes up as you get closer.</li>
+    <li>Save readings at each suspect to compare them.</li>
+  </ol>
+  <p class="dim small">All audio is processed on your phone. Nothing is recorded or uploaded.</p>
+  <button id="startBtn" class="primary">Start listening</button>
+  <div id="err"></div>
+</section>
+
+<main id="app" class="hidden">
+  <section id="meterCard" class="card">
+    <div id="lockLine">
+      <div id="freq">Listening…</div>
+      <div class="dim small" id="snr"></div>
+    </div>
+    <div id="bigRow">
+      <div id="big">--<small>dB</small></div>
+      <div id="trend"></div>
+    </div>
+    <div id="bar"><div id="barFill"></div><div id="barMax"></div></div>
+    <div id="stats"><span id="stMin">quiet</span><span id="stMax">loudest: --</span></div>
+    <canvas id="hist"></canvas>
+    <div class="row" style="margin-top:10px">
+      <button id="resetMaxBtn">Reset max</button>
+      <button id="autoBtn">Auto-pick</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Steady tones detected</h2>
+    <div id="cands"><span class="dim small">Analyzing… give it a few seconds.</span></div>
+    <div class="row small dim" style="margin-top:8px">
+      <label for="minHz">Ignore below</label>
+      <select id="minHz">
+        <option value="500">500 Hz</option>
+        <option value="1000">1 kHz</option>
+        <option value="2000" selected>2 kHz</option>
+        <option value="5000">5 kHz</option>
+        <option value="10000">10 kHz</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Spectrum <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">— tap a peak to lock it</span></h2>
+    <canvas id="spec"></canvas>
+    <canvas id="fall"></canvas>
+    <div class="axis" id="axis"></div>
+    <p class="dim small" style="margin:8px 0 0">A whine shows as a sharp spike and a steady vertical line in the waterfall.</p>
+  </section>
+
+  <section class="card">
+    <h2>Saved spots</h2>
+    <div class="row">
+      <input id="spotName" class="grow" placeholder="e.g. monitor, desk lamp, router" maxlength="40">
+      <button id="saveSpot" class="primary">Save</button>
+    </div>
+    <ul id="spots"></ul>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Tips for finding it</summary>
+      <ul>
+        <li><b>Sweep slowly.</b> High frequencies are very directional and reflect off walls, so move a little, pause a second, and watch the trend arrow.</li>
+        <li><b>Get close.</b> Level rises sharply within a few centimetres of the source. Hold the mic right up to each power brick, charger, monitor, PC case, light, and outlet.</li>
+        <li><b>Unplug one thing at a time.</b> If the tone disappears from the list when you unplug something, you've found it. Flipping breakers works for things inside walls (dimmers, transformers, smoke detectors).</li>
+        <li><b>Usual suspects:</b> phone/laptop chargers, USB hubs, LED bulbs on dimmers, monitors and TVs (even in standby), PC power supplies and graphics cards, routers, speakers/amps, ultrasonic pest repellers, CRTs (~15.7 kHz), and smoke/CO detectors.</li>
+        <li><b>Mic limits:</b> phones can usually measure up to about 20 kHz. If you can hear it but nothing shows up, try another phone, take off the case, and lower the “Ignore below” setting.</li>
+        <li><b>Keep the room quiet</b> while you search; fans, HVAC and talking raise the background.</li>
+      </ul>
+    </details>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+
+  // ---------- state ----------
+  let ctx, analyser, stream, src, wakeLock = null;
+  let N = 0, binHz = 1, nyq = 24000;
+  let raw, avg, pre;               // raw = analyser dB, avg = slow EMA dB, pre = prefix sums
+  let running = false, paused = false, frame = 0, liveSince = 0;
+  let minHz = 2000;
+  let cands = [];                  // [{hz, prom, db}]
+  let target = null;               // {hz, locked:boolean}
+  let level = null, levelFloor = null, maxLevel = -Infinity, minLevel = Infinity;
+  const hist = [];                 // [{t, v}]
+  const HIST_SECS = 25;
+  let spots = [];
+  try { spots = JSON.parse(localStorage.getItem('whine-spots') || '[]'); } catch (e) { spots = []; }
+
+  const fmtHz = (hz) => hz >= 1000 ? (hz / 1000).toFixed(hz >= 10000 ? 2 : 3) + ' kHz' : Math.round(hz) + ' Hz';
+
+  // ---------- start ----------
+  $('#startBtn').addEventListener('click', start);
+  async function start() {
+    const err = $('#err');
+    err.style.display = 'none';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      err.textContent = 'This browser cannot access the microphone. Open the page over https in Chrome, Safari or Firefox.';
+      err.style.display = 'block';
+      return;
+    }
+    try {
+      // Turn off all voice processing: it filters out and suppresses exactly the kind of steady tone we want.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: {
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1,
+      } });
+    } catch (e) {
+      err.textContent = 'Microphone access was blocked (' + e.name + '). Allow it in your browser settings and reload.';
+      err.style.display = 'block';
+      return;
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+    if (ctx.state !== 'running') await ctx.resume();
+    src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 16384;              // ~3 Hz bins at 48 kHz: narrow tones stand out from the noise
+    analyser.smoothingTimeConstant = 0.5;
+    analyser.minDecibels = -150;
+    analyser.maxDecibels = 0;
+    src.connect(analyser);
+
+    N = analyser.frequencyBinCount;
+    binHz = ctx.sampleRate / analyser.fftSize;
+    nyq = ctx.sampleRate / 2;
+    raw = new Float32Array(N);
+    avg = new Float32Array(N).fill(-150);
+    pre = new Float64Array(N + 1);
+
+    $('#intro').classList.add('hidden');
+    $('#app').classList.remove('hidden');
+    $('#pauseBtn').classList.remove('hidden');
+    running = true;
+    requestWake();
+    sizeCanvases();
+    drawAxis();
+    renderSpots();
+    requestAnimationFrame(loop);
+  }
+
+  async function requestWake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && running) {
+      requestWake();
+      if (ctx && ctx.state !== 'running') ctx.resume();
+    }
+  });
+
+  $('#pauseBtn').addEventListener('click', () => {
+    paused = !paused;
+    $('#pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+    if (paused) ctx.suspend(); else ctx.resume();
+  });
+
+  $('#minHz').addEventListener('change', (e) => {
+    minHz = +e.target.value;
+    if (target && target.hz < minHz) target = null;
+    drawAxis();
+  });
+
+  $('#resetMaxBtn').addEventListener('click', () => { maxLevel = -Infinity; minLevel = Infinity; hist.length = 0; });
+  $('#autoBtn').addEventListener('click', () => { target = null; resetLevels(); });
+
+  function resetLevels() { level = null; levelFloor = null; maxLevel = -Infinity; minLevel = Infinity; hist.length = 0; }
+
+  function lockTo(hz) {
+    target = { hz, locked: true };
+    resetLevels();
+    try { navigator.vibrate && navigator.vibrate(30); } catch (e) {}
+  }
+
+  // ---------- analysis ----------
+  const dbAt = (v) => (Number.isFinite(v) ? v : -150);
+
+  function updateAverages() {
+    analyser.getFloatFrequencyData(raw);
+    let peak = -150;
+    for (let i = 0; i < N; i++) { raw[i] = dbAt(raw[i]); if (raw[i] > peak) peak = raw[i]; }
+    if (peak <= -149) return false; // mic not delivering audio yet
+    // The FFT window (~340 ms) is partly empty at first, so just seed the average until it has filled.
+    if (!liveSince) liveSince = performance.now();
+    const warm = performance.now() - liveSince < 600;
+    const a = warm ? 1 : 0.08; // slow average so steady tones dominate over transient sounds
+    for (let i = 0; i < N; i++) avg[i] += (raw[i] - avg[i]) * a;
+    return !warm;
+  }
+
+  // Local noise floor: mean dB of neighbours, excluding the peak itself.
+  function floorAround(i, arrPre) {
+    const W = Math.max(10, Math.round(250 / binHz)), G = Math.max(3, Math.round(12 / binHz));
+    const a = Math.max(0, i - W), b = Math.max(a, i - G), c = Math.min(N, i + G + 1), d = Math.min(N, i + W + 1);
+    const n = (b - a) + (d - c);
+    if (n <= 0) return -150;
+    return (arrPre[b] - arrPre[a] + arrPre[d] - arrPre[c]) / n;
+  }
+
+  function detect() {
+    pre[0] = 0;
+    for (let i = 0; i < N; i++) pre[i + 1] = pre[i] + avg[i];
+    const lo = Math.max(3, Math.floor(minHz / binHz)), hi = Math.min(N - 4, Math.floor(Math.min(nyq * 0.98, 23900) / binHz));
+    const found = [];
+    for (let i = lo; i <= hi; i++) {
+      const v = avg[i];
+      if (v < avg[i - 1] || v < avg[i + 1] || v < avg[i - 2] || v < avg[i + 2]) continue;
+      const prom = v - floorAround(i, pre);
+      if (prom < 9) continue;
+      found.push({ hz: refineHz(avg, i), prom, db: v });
+    }
+    found.sort((x, y) => y.prom - x.prom);
+    // merge near-duplicates
+    const out = [];
+    for (const c of found) {
+      if (out.every((o) => Math.abs(o.hz - c.hz) > Math.max(25, c.hz * 0.004))) out.push(c);
+      if (out.length >= 6) break;
+    }
+    cands = out;
+
+    // Auto-pick: follow the most prominent steady tone, with hysteresis so it doesn't flicker.
+    if (!target || !target.locked) {
+      const best = cands[0];
+      if (best) {
+        const cur = target && cands.find((c) => Math.abs(c.hz - target.hz) < Math.max(25, target.hz * 0.004));
+        if (!target || !cur || best.prom > cur.prom + 6) {
+          if (!target || Math.abs(best.hz - target.hz) > 25) resetLevels();
+          target = { hz: best.hz, locked: false };
+        }
+      }
+    }
+    renderCands();
+  }
+
+  // Parabolic interpolation for sub-bin frequency accuracy.
+  function refineHz(arr, i) {
+    const a = arr[i - 1], b = arr[i], c = arr[i + 1];
+    const den = a - 2 * b + c;
+    const p = den !== 0 ? 0.5 * (a - c) / den : 0;
+    return (i + Math.max(-0.5, Math.min(0.5, p))) * binHz;
+  }
+
+  function measure() {
+    if (!target) return;
+    // Search a small window around the target (the whine can drift a little) on the fast spectrum.
+    const span = Math.max(3, Math.round(Math.max(15, target.hz * 0.002) / binHz));
+    const c0 = Math.round(target.hz / binHz);
+    let bi = c0, bv = -Infinity;
+    for (let i = Math.max(2, c0 - span); i <= Math.min(N - 3, c0 + span); i++) if (raw[i] > bv) { bv = raw[i]; bi = i; }
+    // Band power over the peak ±2 bins (window leakage) in dB.
+    let p = 0;
+    for (let i = bi - 2; i <= bi + 2; i++) p += Math.pow(10, raw[i] / 10);
+    const lv = 10 * Math.log10(p);
+    // Floor from the fast spectrum around the peak.
+    let s = 0, n = 0;
+    const W = Math.max(10, Math.round(250 / binHz)), G = Math.max(4, Math.round(15 / binHz));
+    for (let i = Math.max(0, bi - W); i < bi - G; i++) { s += raw[i]; n++; }
+    for (let i = bi + G + 1; i < Math.min(N, bi + W + 1); i++) { s += raw[i]; n++; }
+    const fl = n ? s / n : -150;
+
+    level = level == null ? lv : level + (lv - level) * 0.25;
+    levelFloor = levelFloor == null ? fl : levelFloor + (fl - levelFloor) * 0.1;
+    // Slowly follow drift, but only when the tone is actually present.
+    if (lv - fl > 8) target.hz += (refineHz(raw, bi) - target.hz) * 0.05;
+
+    const now = performance.now();
+    hist.push({ t: now, v: level });
+    while (hist.length && now - hist[0].t > HIST_SECS * 1000) hist.shift();
+    if (level - levelFloor > 6) maxLevel = Math.max(maxLevel, level);
+    minLevel = Math.min(minLevel, level);
+  }
+
+  // ---------- rendering ----------
+  const meterCard = $('#meterCard');
+  function renderMeter() {
+    const fq = $('#freq');
+    if (!target || level == null) {
+      fq.innerHTML = 'Listening for a steady tone…';
+      $('#big').innerHTML = '--<small>dB</small>';
+      $('#snr').textContent = '';
+      $('#trend').textContent = '';
+      $('#barFill').style.width = '0%';
+      meterCard.style.backgroundColor = '';
+      return;
+    }
+    fq.innerHTML = fmtHz(target.hz) +
+      (target.locked ? '<span class="tag locked">LOCKED</span>' : '<span class="tag auto">AUTO</span>');
+    const snr = level - levelFloor;
+    const present = snr > 6;
+    $('#snr').textContent = present ? '+' + snr.toFixed(0) + ' dB above background' : 'tone not heard here';
+    $('#big').innerHTML = level.toFixed(1) + '<small>dB</small>';
+
+    // Meter range: from ~ background level up to the loudest reading this session (+ headroom).
+    const top = Math.max(Number.isFinite(maxLevel) ? maxLevel : level, level) + 2;
+    const bottom = Math.min(levelFloor + 3, top - 20);
+    const frac = Math.max(0, Math.min(1, (level - bottom) / (top - bottom)));
+    $('#barFill').style.width = (frac * 100).toFixed(1) + '%';
+    const mfrac = Number.isFinite(maxLevel) ? Math.max(0, Math.min(1, (maxLevel - bottom) / (top - bottom))) : 0;
+    $('#barMax').style.left = 'calc(' + (mfrac * 100).toFixed(1) + '% - 2px)';
+    $('#stMin').textContent = 'background ' + levelFloor.toFixed(0) + ' dB';
+    $('#stMax').textContent = 'loudest: ' + (Number.isFinite(maxLevel) ? maxLevel.toFixed(1) + ' dB' : '--');
+
+    // Hot/cold tint
+    const hue = 220 - 220 * frac;
+    meterCard.style.backgroundColor = present ? 'hsla(' + hue + ',80%,45%,' + (0.08 + 0.22 * frac).toFixed(2) + ')' : '';
+
+    // Trend: compare the last 0.6 s to the 0.6 s before 2 s ago.
+    const now = performance.now();
+    const mean = (t0, t1) => { let s = 0, n = 0; for (const h of hist) if (h.t >= now - t0 && h.t < now - t1) { s += h.v; n++; } return n ? s / n : null; };
+    const recent = mean(600, 0), before = mean(2600, 2000);
+    const tr = $('#trend');
+    if (recent != null && before != null && present) {
+      const d = recent - before;
+      if (d > 1.5) { tr.textContent = '▲ warmer'; tr.style.color = 'var(--hot)'; }
+      else if (d < -1.5) { tr.textContent = '▼ colder'; tr.style.color = 'var(--cold)'; }
+      else { tr.textContent = '≈ same'; tr.style.color = 'var(--dim)'; }
+    } else tr.textContent = '';
+  }
+
+  let lastCandKey = '';
+  function renderCands() {
+    const box = $('#cands');
+    if (!cands.length) {
+      if (lastCandKey !== 'none') box.innerHTML = '<span class="dim small">No steady tone found yet above ' + fmtHz(minHz) + '. Try moving closer to suspects or lowering the cutoff.</span>';
+      lastCandKey = 'none';
+      return;
+    }
+    const key = cands.map((c) => Math.round(c.hz / 10) + ':' + Math.round(c.prom)).join(',') + '|' + (target ? Math.round(target.hz / 10) : '');
+    if (key === lastCandKey) return;
+    lastCandKey = key;
+    box.innerHTML = '';
+    for (const c of cands) {
+      const b = document.createElement('button');
+      const sel = target && Math.abs(target.hz - c.hz) < Math.max(25, c.hz * 0.004);
+      b.className = 'chip' + (sel ? ' sel' : '');
+      b.textContent = fmtHz(c.hz) + '  +' + Math.round(c.prom) + ' dB';
+      b.addEventListener('click', () => { lockTo(c.hz); lastCandKey = ''; renderCands(); });
+      box.appendChild(b);
+    }
+  }
+
+  // Canvases
+  const spec = $('#spec'), fall = $('#fall'), histC = $('#hist');
+  const sctx = spec.getContext('2d'), fctx = fall.getContext('2d'), hctx = histC.getContext('2d');
+  let dpr = 1;
+  function sizeCanvases() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    for (const c of [spec, fall, histC]) {
+      const r = c.getBoundingClientRect();
+      c.width = Math.max(1, Math.round(r.width * dpr));
+      c.height = Math.max(1, Math.round(r.height * dpr));
+    }
+  }
+  window.addEventListener('resize', () => { if (running) { sizeCanvases(); drawAxis(); } });
+
+  const fLo = () => Math.max(200, Math.min(minHz, 2000) / 2);
+  const fHi = () => Math.min(nyq, 24000);
+  const xToHz = (x, w) => fLo() * Math.pow(fHi() / fLo(), x / w);
+  const hzToX = (hz, w) => w * Math.log(hz / fLo()) / Math.log(fHi() / fLo());
+
+  function drawAxis() {
+    const ticks = [500, 1000, 2000, 5000, 10000, 15000, 20000].filter((f) => f >= fLo() && f <= fHi());
+    const ax = $('#axis');
+    ax.style.position = 'relative'; ax.style.height = '14px'; ax.innerHTML = '';
+    for (const f of ticks) {
+      const s = document.createElement('span');
+      s.textContent = f >= 1000 ? f / 1000 + 'k' : f;
+      s.style.position = 'absolute';
+      s.style.left = (100 * Math.log(f / fLo()) / Math.log(fHi() / fLo())) + '%';
+      s.style.transform = 'translateX(-50%)';
+      ax.appendChild(s);
+    }
+  }
+
+  // Per-column max of an array over the log-frequency axis.
+  function columns(arr, w) {
+    const out = new Float32Array(w);
+    for (let x = 0; x < w; x++) {
+      const i0 = Math.max(1, Math.floor(xToHz(x, w) / binHz));
+      const i1 = Math.max(i0, Math.min(N - 1, Math.floor(xToHz(x + 1, w) / binHz)));
+      let m = -150;
+      for (let i = i0; i <= i1; i++) if (arr[i] > m) m = arr[i];
+      out[x] = m;
+    }
+    return out;
+  }
+
+  let colorRef = null, fallImg = null;
+  function drawSpectrum() {
+    const w = spec.width, h = spec.height;
+    const colsAvg = columns(avg, w), colsRaw = columns(raw, w);
+    // Vertical range from a robust estimate of the background level.
+    const sorted = Array.from(colsAvg).sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length * 0.5)];
+    colorRef = colorRef == null ? med : colorRef + (med - colorRef) * 0.05;
+    const dbLo = colorRef - 12, dbHi = colorRef + 30;
+    const y = (v) => h - (Math.max(dbLo, Math.min(dbHi, v)) - dbLo) / (dbHi - dbLo) * h;
+
+    sctx.clearRect(0, 0, w, h);
+    // ignored region
+    const xMin = hzToX(minHz, w);
+    sctx.fillStyle = 'rgba(255,255,255,0.04)';
+    sctx.fillRect(0, 0, Math.max(0, xMin), h);
+    // grid
+    sctx.strokeStyle = 'rgba(255,255,255,0.07)'; sctx.lineWidth = 1;
+    for (const f of [1000, 2000, 5000, 10000, 15000, 20000]) {
+      if (f < fLo() || f > fHi()) continue;
+      const x = Math.round(hzToX(f, w)) + 0.5; sctx.beginPath(); sctx.moveTo(x, 0); sctx.lineTo(x, h); sctx.stroke();
+    }
+    // raw (faint)
+    sctx.strokeStyle = 'rgba(88,166,255,0.35)'; sctx.lineWidth = 1 * dpr;
+    sctx.beginPath();
+    for (let x = 0; x < w; x++) { const yy = y(colsRaw[x]); x ? sctx.lineTo(x, yy) : sctx.moveTo(x, yy); }
+    sctx.stroke();
+    // averaged
+    sctx.strokeStyle = '#58a6ff'; sctx.lineWidth = 1.6 * dpr;
+    sctx.beginPath();
+    for (let x = 0; x < w; x++) { const yy = y(colsAvg[x]); x ? sctx.lineTo(x, yy) : sctx.moveTo(x, yy); }
+    sctx.stroke();
+    // candidates
+    sctx.fillStyle = '#f0a030';
+    for (const c of cands) {
+      const x = hzToX(c.hz, w), yy = y(c.db) - 4 * dpr;
+      sctx.beginPath(); sctx.moveTo(x, yy); sctx.lineTo(x - 5 * dpr, yy - 8 * dpr); sctx.lineTo(x + 5 * dpr, yy - 8 * dpr); sctx.fill();
+    }
+    // target
+    if (target) {
+      const x = hzToX(target.hz, w);
+      sctx.strokeStyle = target.locked ? '#3fb950' : '#ffffff'; sctx.lineWidth = 1.5 * dpr;
+      sctx.setLineDash([4 * dpr, 4 * dpr]);
+      sctx.beginPath(); sctx.moveTo(x, 0); sctx.lineTo(x, h); sctx.stroke();
+      sctx.setLineDash([]);
+    }
+
+    // waterfall: scroll down one row, draw newest at top
+    const fw = fall.width, fh = fall.height;
+    if (!fallImg || fallImg.width !== fw || fallImg.height !== fh) fallImg = fctx.createImageData(fw, fh);
+    const px = fallImg.data;
+    px.copyWithin(fw * 4, 0, px.length - fw * 4);
+    const colsF = fw === w ? colsAvg : columns(avg, fw);
+    const cLo = colorRef - 1, cHi = colorRef + 10;
+    for (let x = 0; x < fw; x++) {
+      const t = Math.max(0, Math.min(1, (colsF[x] - cLo) / (cHi - cLo)));
+      const [r, g, b] = heat(t);
+      px[x * 4] = r; px[x * 4 + 1] = g; px[x * 4 + 2] = b; px[x * 4 + 3] = 255;
+    }
+    fctx.putImageData(fallImg, 0, 0);
+  }
+
+  function heat(t) {
+    // black -> blue -> magenta -> orange -> yellow-white
+    const stops = [[1, 4, 9], [20, 40, 140], [150, 40, 160], [250, 130, 30], [255, 245, 200]];
+    const s = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(s)), f = s - i;
+    const a = stops[i], b = stops[i + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+
+  function drawHist() {
+    const w = histC.width, h = histC.height;
+    hctx.clearRect(0, 0, w, h);
+    if (hist.length < 2 || levelFloor == null) return;
+    let lo = levelFloor, hi = Number.isFinite(maxLevel) ? maxLevel : levelFloor + 20;
+    for (const p of hist) hi = Math.max(hi, p.v);
+    lo -= 3; hi += 3;
+    const now = performance.now();
+    const X = (t) => w - (now - t) / (HIST_SECS * 1000) * w;
+    const Y = (v) => h - (v - lo) / (hi - lo) * h;
+    if (Number.isFinite(maxLevel)) {
+      hctx.strokeStyle = 'rgba(255,255,255,0.35)'; hctx.setLineDash([3 * dpr, 3 * dpr]); hctx.lineWidth = dpr;
+      hctx.beginPath(); hctx.moveTo(0, Y(maxLevel)); hctx.lineTo(w, Y(maxLevel)); hctx.stroke(); hctx.setLineDash([]);
+    }
+    const g = hctx.createLinearGradient(0, h, 0, 0);
+    g.addColorStop(0, '#3b82f6'); g.addColorStop(0.6, '#f0a030'); g.addColorStop(1, '#ff5b4f');
+    hctx.strokeStyle = g; hctx.lineWidth = 2 * dpr;
+    hctx.beginPath();
+    hist.forEach((p, k) => { const x = X(p.t), yy = Y(p.v); k ? hctx.lineTo(x, yy) : hctx.moveTo(x, yy); });
+    hctx.stroke();
+  }
+
+  // Tap the spectrum to lock onto the strongest peak near that spot.
+  spec.addEventListener('click', (e) => {
+    if (!running) return;
+    const r = spec.getBoundingClientRect();
+    const hz = xToHz(e.clientX - r.left, r.width);
+    const near = cands.filter((c) => Math.abs(Math.log(c.hz / hz)) < 0.06);
+    if (near.length) { near.sort((a, b) => b.prom - a.prom); lockTo(near[0].hz); }
+    else {
+      const i0 = Math.max(2, Math.floor(hz * 0.97 / binHz)), i1 = Math.min(N - 3, Math.ceil(hz * 1.03 / binHz));
+      let bi = i0; for (let i = i0; i <= i1; i++) if (avg[i] > avg[bi]) bi = i;
+      lockTo(refineHz(avg, bi));
+    }
+    lastCandKey = ''; renderCands();
+  });
+
+  // ---------- saved spots ----------
+  function saveSpots() { try { localStorage.setItem('whine-spots', JSON.stringify(spots)); } catch (e) {} }
+  $('#saveSpot').addEventListener('click', () => {
+    if (!target || level == null) return;
+    const name = $('#spotName').value.trim() || 'Spot ' + (spots.length + 1);
+    spots.push({ name, level: +level.toFixed(1), hz: Math.round(target.hz), snr: +(level - levelFloor).toFixed(1), t: Date.now() });
+    $('#spotName').value = '';
+    saveSpots(); renderSpots();
+  });
+  $('#spotName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#saveSpot').click(); });
+  function renderSpots() {
+    const ul = $('#spots');
+    ul.innerHTML = '';
+    if (!spots.length) { ul.innerHTML = '<li class="dim small" style="border:0;display:block">Hold the phone at a suspect, type its name and tap Save. The loudest spot rises to the top.</li>'; return; }
+    const sorted = spots.map((s, i) => ({ ...s, i })).sort((a, b) => b.level - a.level);
+    const top = sorted[0].level, bot = Math.min(...sorted.map((s) => s.level)) - 3;
+    for (const s of sorted) {
+      const li = document.createElement('li');
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = (s === sorted[0] && sorted.length > 1 ? '🔥 ' : '') + s.name;
+      n.title = fmtHz(s.hz);
+      const v = document.createElement('span'); v.className = 'v small';
+      v.textContent = s.level.toFixed(1) + ' dB' + (s === sorted[0] ? '' : ' (' + (s.level - top).toFixed(1) + ')') + ' · ' + fmtHz(s.hz);
+      const d = document.createElement('button'); d.className = 'del'; d.textContent = '✕'; d.setAttribute('aria-label', 'Delete ' + s.name);
+      d.addEventListener('click', () => { spots.splice(s.i, 1); saveSpots(); renderSpots(); });
+      const bar = document.createElement('div'); bar.className = 'sb';
+      const fill = document.createElement('i'); fill.style.width = (top > bot ? (s.level - bot) / (top - bot) * 100 : 100) + '%';
+      bar.appendChild(fill);
+      li.append(n, v, d, bar);
+      ul.appendChild(li);
+    }
+  }
+
+  // ---------- main loop ----------
+  function loop() {
+    if (!running) return;
+    requestAnimationFrame(loop);
+    if (paused) return;
+    if (!updateAverages()) return;
+    frame++;
+    if (frame % 8 === 0) detect();
+    measure();
+    if (frame % 2 === 0) { renderMeter(); drawSpectrum(); drawHist(); }
+  }
+})();
+</script>
+</body>
+</html>
